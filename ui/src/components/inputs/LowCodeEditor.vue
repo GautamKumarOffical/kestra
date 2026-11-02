@@ -697,6 +697,8 @@
         }
     }
 
+    const typeKey = (item: {type?: string, version?: string}) => `${item.type}:${item.version ?? "null"}`
+
     const resolveTaskTopologyDetails = async (tasks: FlowTask[] = []) => {
         const taskTypes = new Set<string>()
         const runnerTypes = new Set<string>()
@@ -705,9 +707,9 @@
             if (!task?.type) {
                 return
             }
-            taskTypes.add(`${task.type}:${task.version ?? "null"}`)
+            taskTypes.add(typeKey(task))
             if (task?.taskRunner?.type) {
-                runnerTypes.add(`${task.taskRunner.type}:${task.taskRunner.version ?? "null"}`)
+                runnerTypes.add(typeKey(task.taskRunner))
             }
         })
 
@@ -734,10 +736,12 @@
         ])
     }
 
+    const authoredTasks = () => TASK_SECTIONS.flatMap((section) => getAllTasks(flowStore.flowParsed?.[section]))
+
     watch(
-        () => flowStore.flowParsed?.tasks,
-        async (tasks) => {
-            await resolveTaskTopologyDetails(tasks ?? [])
+        () => TASK_SECTIONS.map((section) => flowStore.flowParsed?.[section]),
+        async () => {
+            await resolveTaskTopologyDetails(authoredTasks())
         },
         {immediate: true},
     )
@@ -788,14 +792,17 @@
         if (uid) loopScoping.scopeFirstFailure(uid)
     }
 
+    const resolvedGeneratedTypes = new Set<string>()
+
     watch(
         () => props.flowGraph,
         async (flowGraph) => {
             const graphTasks: FlowTask[] = (flowGraph?.nodes ?? []).flatMap((n) => n.task?.type ? [n.task] : [])
             if (flowStore.flowParsed?.tasks?.length) {
                 // A task its parent generates at run time is a node of the graph but not a task of the YAML.
-                const authored = new Set(getAllTasks(flowStore.flowParsed.tasks).map((task: FlowTask) => task.id))
-                const generated = graphTasks.filter((task) => !authored.has(task.id))
+                const authored = new Set(authoredTasks().map((task: FlowTask) => task.id))
+                const generated = graphTasks.filter((task) => !authored.has(task.id) && !resolvedGeneratedTypes.has(typeKey(task)))
+                generated.forEach((task) => resolvedGeneratedTypes.add(typeKey(task)))
                 if (generated.length) await resolveTaskTopologyDetails(generated)
                 return
             }

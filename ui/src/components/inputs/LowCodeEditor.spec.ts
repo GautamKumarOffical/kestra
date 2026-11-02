@@ -124,4 +124,66 @@ tasks:
         expect(requestedTypes).toContain("io.kestra.plugin.ee.terraform.Plan")
         wrapper.unmount()
     })
+
+    test("requests the plugin UI of the tasks of the errors, finally and afterExecution blocks", async () => {
+        const blocks = `
+id: blocks
+namespace: company.team
+tasks:
+  - id: log
+    type: io.kestra.plugin.core.log.Log
+errors:
+  - id: alert
+    type: io.kestra.plugin.notifications.slack.SlackIncomingWebhook
+finally:
+  - id: cleanup
+    type: io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles
+afterExecution:
+  - id: report
+    type: io.kestra.plugin.core.http.Request
+`
+        flowStore.flowYaml = blocks
+        flowStore.flowParsed = YAML_UTILS.parse<ParsedFlow>(blocks)
+
+        const wrapper = i18nMount(LowCodeEditor, {
+            props: {flowGraph: {nodes: [], edges: [], clusters: []}, isReadOnly: true},
+            global: {stubs: {teleport: true}},
+        })
+        await flushPromises()
+
+        expect(requestedTypes).toEqual(expect.arrayContaining([
+            "io.kestra.plugin.notifications.slack.SlackIncomingWebhook",
+            "io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles",
+            "io.kestra.plugin.core.http.Request",
+        ]))
+        wrapper.unmount()
+    })
+
+    test("requests the plugin UI of a generated task once, however often the graph changes", async () => {
+        const deploy = `
+id: deploy
+namespace: company.team
+tasks:
+  - id: deploy
+    type: io.kestra.plugin.ee.terraform.Deploy
+`
+        flowStore.flowYaml = deploy
+        flowStore.flowParsed = YAML_UTILS.parse<ParsedFlow>(deploy)
+        const node = (id: string, type: string) => ({uid: id, type: "io.kestra.core.models.hierarchies.GraphTask", task: {id, type}})
+        const graph = () => ({nodes: [node("deploy", "io.kestra.plugin.ee.terraform.Deploy"), node("deploy_plan", "io.kestra.plugin.ee.terraform.Plan")], edges: [], clusters: []})
+
+        const wrapper = i18nMount(LowCodeEditor, {
+            props: {flowGraph: graph(), isReadOnly: true},
+            global: {stubs: {teleport: true}},
+        })
+        await flushPromises()
+        const planRequests = () => requestedTypes.filter((type) => type === "io.kestra.plugin.ee.terraform.Plan").length
+        const firstGraph = planRequests()
+        await wrapper.setProps({flowGraph: graph()})
+        await flushPromises()
+
+        expect(firstGraph).toBeGreaterThan(0)
+        expect(planRequests()).toBe(firstGraph)
+        wrapper.unmount()
+    })
 })
