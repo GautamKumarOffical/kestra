@@ -16,8 +16,14 @@ public record Blocker(
     @Schema(title = "The ids of what blocks the flow, such as the rejecting policies when the reason is POLICY.") List<String> ids,
     @Schema(title = "The message reported to the user.") String message) {
 
+    static final String CHECK_FAILED_MESSAGE = "The governance policies could not be checked.";
+
+    /**
+     * A failed check keeps its cause out of the block, as the block is exposed by the API.
+     */
     public static Blocker from(FlowBlockedException e) {
-        return new Blocker(e.getReason(), e.getPolicyIds(), e.getMessage());
+        String message = e.getReason() == Reason.POLICY_CHECK_FAILED ? CHECK_FAILED_MESSAGE : e.getMessage();
+        return new Blocker(e.getReason(), e.getPolicyIds(), message);
     }
 
     /**

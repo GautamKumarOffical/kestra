@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.event.Level;
 
@@ -21,6 +22,7 @@ import io.kestra.core.models.triggers.RecoverMissedSchedules;
 import io.kestra.core.queues.DispatchQueueInterface;
 import io.kestra.core.runners.ProcessedFlow;
 import io.kestra.core.runners.RunContextFactory;
+import io.kestra.core.scheduler.SchedulerClock;
 import io.kestra.core.scheduler.model.Blocker;
 import io.kestra.core.scheduler.model.TriggerState;
 import io.kestra.core.services.FlowParsingService;
@@ -166,6 +168,11 @@ class DefaultSchedulableTriggerFetcherTest {
         assertThat(schedulable).hasSize(1);
     }
 
+    @AfterEach
+    void restoreSchedulerClock() {
+        SchedulerClock.setClock(Clock.systemDefaultZone());
+    }
+
     @Test
     void shouldReportABlockOnceWhileItLasts() throws Exception {
         // Given a due schedule whose flow governance rejects
@@ -219,12 +226,35 @@ class DefaultSchedulableTriggerFetcherTest {
             fetcher.getSchedulableTriggers(clock, now, Set.of(0));
         }
 
-        // Then each new block is reported once, a failed check whatever its cause
+        // Then each new block is reported once, a failed check whatever its cause, and without its cause
         assertThat(warnings(logs)).extracting(LogEntry::getMessage).satisfiesExactlyInAnyOrder(
             message -> assertThat(message).contains("Log plugin is not allowed by policy"),
             message -> assertThat(message).contains("Shell tasks are not allowed by policy"),
-            message -> assertThat(message).contains("connection reset")
+            message -> assertThat(message).contains("The governance policies could not be checked.").doesNotContain("connection reset")
         );
+    }
+
+    @Test
+    void shouldNotShowTheCauseOfAFailedPolicyCheckInTheFlowLogs() throws Exception {
+        // Given a due schedule whose governance policies cannot be checked
+        Clock clock = Clock.fixed(Instant.parse("2026-10-27T10:00:30Z"), ZoneOffset.UTC);
+        ZonedDateTime now = ZonedDateTime.now(clock);
+        FlowWithSource flow = flow("check-failed");
+        InMemoryTriggerStateStore triggerStateStore = new InMemoryTriggerStateStore();
+        triggerStateStore.save(TriggerState.of(flow, SCHEDULE, 0).updateForNextEvaluationDate(clock, now.minusMinutes(1)));
+        FlowParsingService flowParsingService = mock(FlowParsingService.class);
+        when(flowParsingService.parseForRuntime(flow)).thenThrow(
+            new FlowBlockedException("Governance policy resolution failed: connection reset", new IllegalStateException("socket closed"))
+        );
+        DefaultSchedulableTriggerFetcher fetcher = fetcher(triggerStateStore, flow, flowParsingService);
+        List<LogEntry> logs = listenToLogs(flow);
+
+        // When
+        fetcher.getSchedulableTriggers(clock, now, Set.of(0));
+
+        // Then the flow logs do not show the cause
+        assertThat(warnings(logs)).singleElement()
+            .satisfies(log -> assertThat(log.getMessage()).doesNotContain("connection reset").doesNotContain("socket closed"));
     }
 
     @Test
@@ -279,7 +309,8 @@ class DefaultSchedulableTriggerFetcherTest {
     @Test
     void shouldReplayOnlyTheLastDateMissedWhileBlockedOnceUnblockedWhenTheScheduleRecoversLast() throws Exception {
         // Given a schedule recovering the last missed date, evaluated and blocked an hour ago, whose flow governance now accepts
-        Clock clock = Clock.systemUTC();
+        Clock clock = Clock.fixed(Instant.parse("2026-10-27T10:00:30Z"), ZoneOffset.UTC);
+        SchedulerClock.setClock(clock);
         ZonedDateTime now = ZonedDateTime.now(clock);
         Schedule schedule = Schedule.builder().id("schedule").type(Schedule.class.getName()).cron("* * * * *").recoverMissedSchedules(RecoverMissedSchedules.LAST).build();
         FlowWithSource flow = flow("unblocked-last").toBuilder().triggers(List.of(schedule)).build();

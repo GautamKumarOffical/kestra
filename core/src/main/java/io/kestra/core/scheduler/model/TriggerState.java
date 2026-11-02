@@ -176,7 +176,7 @@ public final class TriggerState implements TriggerId {
      * @return a new {@link TriggerState}
      */
     public TriggerState disabled(final Clock clock, boolean disabled) {
-        return update(clock).disabled(disabled).build();
+        return update(clock).disabled(disabled).blockedBy(null).build();
     }
 
     /**
@@ -327,6 +327,7 @@ public final class TriggerState implements TriggerId {
             .locked(false)
             .workerId(null)
             .executionId(null)
+            .blockedBy(null)
             .build();
     }
 

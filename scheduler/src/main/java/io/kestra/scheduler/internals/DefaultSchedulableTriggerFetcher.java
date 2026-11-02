@@ -228,6 +228,17 @@ public class DefaultSchedulableTriggerFetcher implements SchedulableTriggerFetch
         }
 
         triggerStateStore.save(triggerState.blockedBy(clock, block));
+        if (e.getReason() == Blocker.Reason.POLICY_CHECK_FAILED) {
+            // The cause stays out of the flow logs, which users can read.
+            LOG.warn(
+                "Governance policies could not be checked for trigger '{}' of flow '{}.{}' on tenant {}",
+                triggerState.getTriggerId(),
+                flow.getNamespace(),
+                flow.getId(),
+                flow.getTenantId(),
+                e
+            );
+        }
         ListUtils.emptyOnNull(flow.getTriggers()).stream()
             .filter(it -> it.getId().equals(triggerState.getTriggerId()))
             .findFirst()
@@ -238,7 +249,7 @@ public class DefaultSchedulableTriggerFetcher implements SchedulableTriggerFetch
                     Level.WARN,
                     "[trigger: {}] Skipped: {}",
                     trigger.getId(),
-                    e.getMessage()
+                    block.message()
                 )
             );
     }
