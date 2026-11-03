@@ -25,19 +25,9 @@ public class FlowBlockedException extends FlowProcessingException {
     private final Reason reason;
     private final List<String> policyIds;
 
-    public FlowBlockedException(String message) {
-        this(message, (Throwable) null);
-    }
-
-    public FlowBlockedException(String message, Throwable cause) {
+    public FlowBlockedException(Reason reason, String message, List<String> policyIds, Throwable cause) {
         super(message, cause);
-        this.reason = Reason.POLICY_CHECK_FAILED;
-        this.policyIds = List.of();
-    }
-
-    public FlowBlockedException(String message, List<String> policyIds) {
-        super(message);
-        this.reason = Reason.POLICY;
+        this.reason = reason;
         this.policyIds = List.copyOf(policyIds);
     }
 }

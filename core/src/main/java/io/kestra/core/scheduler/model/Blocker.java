@@ -1,7 +1,6 @@
 package io.kestra.core.scheduler.model;
 
 import java.util.List;
-import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 
@@ -24,13 +23,6 @@ public record Blocker(
     public static Blocker from(FlowBlockedException e) {
         String message = e.getReason() == Reason.POLICY_CHECK_FAILED ? CHECK_FAILED_MESSAGE : e.getMessage();
         return new Blocker(e.getReason(), e.getPolicyIds(), message);
-    }
-
-    /**
-     * The message is left out: a failed check embeds its cause, which can differ on every attempt.
-     */
-    public boolean isSameAs(Blocker other) {
-        return other != null && reason == other.reason && Objects.equals(ids, other.ids);
     }
 
     public enum Reason {

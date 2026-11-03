@@ -57,7 +57,7 @@ class TriggerStateTest {
 
     @Test
     void shouldNotExposeTheCauseOfAFailedPolicyCheck() {
-        Blocker blocker = Blocker.from(new FlowBlockedException("Governance policy resolution failed: connection reset", new RuntimeException()));
+        Blocker blocker = Blocker.from(new FlowBlockedException(Blocker.Reason.POLICY_CHECK_FAILED, "Governance policy resolution failed: connection reset", List.of(), new RuntimeException()));
 
         assertThat(blocker.reason()).isEqualTo(Blocker.Reason.POLICY_CHECK_FAILED);
         assertThat(blocker.message()).doesNotContain("connection reset");

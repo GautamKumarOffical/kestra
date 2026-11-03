@@ -182,7 +182,7 @@ class DefaultSchedulableTriggerFetcherTest {
         TriggerState state = TriggerState.of(flow, SCHEDULE, 0).updateForNextEvaluationDate(clock, now.minusMinutes(1));
         InMemoryTriggerStateStore triggerStateStore = new InMemoryTriggerStateStore();
         triggerStateStore.save(state);
-        FlowBlockedException block = new FlowBlockedException("Log plugin is not allowed by policy", List.of("deny-log"));
+        FlowBlockedException block = new FlowBlockedException(Blocker.Reason.POLICY, "Log plugin is not allowed by policy", List.of("deny-log"), null);
         FlowParsingService flowParsingService = mock(FlowParsingService.class);
         when(flowParsingService.parseForRuntime(flow)).thenThrow(block);
         DefaultSchedulableTriggerFetcher fetcher = fetcher(triggerStateStore, flow, flowParsingService);
@@ -212,11 +212,11 @@ class DefaultSchedulableTriggerFetcherTest {
         triggerStateStore.save(state);
         FlowParsingService flowParsingService = mock(FlowParsingService.class);
         when(flowParsingService.parseForRuntime(flow)).thenThrow(
-            new FlowBlockedException("Log plugin is not allowed by policy", List.of("deny-log")),
-            new FlowBlockedException("Log plugin is not allowed by policy", List.of("deny-log")),
-            new FlowBlockedException("Shell tasks are not allowed by policy", List.of("deny-shell")),
-            new FlowBlockedException("Governance policy resolution failed: connection reset", new RuntimeException()),
-            new FlowBlockedException("Governance policy resolution failed: read timed out", new RuntimeException())
+            new FlowBlockedException(Blocker.Reason.POLICY, "Log plugin is not allowed by policy", List.of("deny-log"), null),
+            new FlowBlockedException(Blocker.Reason.POLICY, "Log plugin is not allowed by policy", List.of("deny-log"), null),
+            new FlowBlockedException(Blocker.Reason.POLICY, "Shell tasks are not allowed by policy", List.of("deny-shell"), null),
+            new FlowBlockedException(Blocker.Reason.POLICY_CHECK_FAILED, "Governance policy resolution failed: connection reset", List.of(), new RuntimeException()),
+            new FlowBlockedException(Blocker.Reason.POLICY_CHECK_FAILED, "Governance policy resolution failed: read timed out", List.of(), new RuntimeException())
         );
         DefaultSchedulableTriggerFetcher fetcher = fetcher(triggerStateStore, flow, flowParsingService);
         List<LogEntry> logs = listenToLogs(flow);
@@ -244,7 +244,7 @@ class DefaultSchedulableTriggerFetcherTest {
         triggerStateStore.save(TriggerState.of(flow, SCHEDULE, 0).updateForNextEvaluationDate(clock, now.minusMinutes(1)));
         FlowParsingService flowParsingService = mock(FlowParsingService.class);
         when(flowParsingService.parseForRuntime(flow)).thenThrow(
-            new FlowBlockedException("Governance policy resolution failed: connection reset", new IllegalStateException("socket closed"))
+            new FlowBlockedException(Blocker.Reason.POLICY_CHECK_FAILED, "Governance policy resolution failed: connection reset", List.of(), new IllegalStateException("socket closed"))
         );
         DefaultSchedulableTriggerFetcher fetcher = fetcher(triggerStateStore, flow, flowParsingService);
         List<LogEntry> logs = listenToLogs(flow);
@@ -358,6 +358,45 @@ class DefaultSchedulableTriggerFetcherTest {
         });
     }
 
+    @Test
+    void shouldClearTheBlockWhenTheTriggerIsDisabledInItsDefinition() {
+        // Given a blocked trigger whose definition now declares `disabled: true`
+        Clock clock = Clock.fixed(Instant.parse("2026-10-27T10:00:30Z"), ZoneOffset.UTC);
+        ZonedDateTime now = ZonedDateTime.now(clock);
+        Schedule disabled = Schedule.builder().id("schedule").type(Schedule.class.getName()).cron("* * * * *").disabled(true).build();
+        FlowWithSource flow = flow("blocked-then-disabled-trigger").toBuilder().triggers(List.of(disabled)).build();
+        TriggerState state = TriggerState.of(flow, disabled, 0)
+            .updateForNextEvaluationDate(clock, now.minusMinutes(1))
+            .blockedBy(clock, policyBlock());
+        InMemoryTriggerStateStore triggerStateStore = new InMemoryTriggerStateStore();
+        triggerStateStore.save(state);
+
+        // When
+        fetcher(triggerStateStore, flow, mock(FlowParsingService.class)).getSchedulableTriggers(clock, now, Set.of(0));
+
+        // Then
+        assertThat(triggerStateStore.findByIdWithoutAcl(state).orElseThrow().getBlockedBy()).isNull();
+    }
+
+    @Test
+    void shouldClearTheBlockWhenTheFlowIsDisabled() throws Exception {
+        // Given a blocked trigger whose flow is now disabled
+        Clock clock = Clock.fixed(Instant.parse("2026-10-27T10:00:30Z"), ZoneOffset.UTC);
+        ZonedDateTime now = ZonedDateTime.now(clock);
+        FlowWithSource flow = flow("blocked-then-disabled-flow").toBuilder().disabled(true).build();
+        TriggerState state = TriggerState.of(flow, SCHEDULE, 0)
+            .updateForNextEvaluationDate(clock, now.minusMinutes(1))
+            .blockedBy(clock, policyBlock());
+        InMemoryTriggerStateStore triggerStateStore = new InMemoryTriggerStateStore();
+        triggerStateStore.save(state);
+
+        // When
+        fetcher(triggerStateStore, flow, acceptingParser(flow)).getSchedulableTriggers(clock, now, Set.of(0));
+
+        // Then
+        assertThat(triggerStateStore.findByIdWithoutAcl(state).orElseThrow().getBlockedBy()).isNull();
+    }
+
     private DefaultSchedulableTriggerFetcher fetcher(InMemoryTriggerStateStore triggerStateStore, FlowWithSource flow, FlowParsingService flowParsingService) {
         return new DefaultSchedulableTriggerFetcher(
             runContextFactory,
@@ -374,7 +413,7 @@ class DefaultSchedulableTriggerFetcherTest {
     }
 
     private static Blocker policyBlock() {
-        return Blocker.from(new FlowBlockedException("Log plugin is not allowed by policy", List.of("deny-log")));
+        return Blocker.from(new FlowBlockedException(Blocker.Reason.POLICY, "Log plugin is not allowed by policy", List.of("deny-log"), null));
     }
 
     /**

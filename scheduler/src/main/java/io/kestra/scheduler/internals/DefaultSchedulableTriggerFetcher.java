@@ -102,6 +102,7 @@ public class DefaultSchedulableTriggerFetcher implements SchedulableTriggerFetch
                 }
 
                 if (disabledInDefinition) {
+                    clearBlock(clock, triggerState);
                     return null;
                 }
 
@@ -130,6 +131,7 @@ public class DefaultSchedulableTriggerFetcher implements SchedulableTriggerFetch
                 // non-draft revision), so no draft check is needed here — a draft never reaches this point.
                 if (flow.isDisabled() || maybeTrigger.isEmpty() || maybeTrigger.get().isDisabled()) {
                     // Skip processing this trigger to avoid acting on stale or invalid trigger.
+                    clearBlock(clock, triggerState);
                     return null;
                 }
 
@@ -187,6 +189,12 @@ public class DefaultSchedulableTriggerFetcher implements SchedulableTriggerFetch
         }
     }
 
+    private void clearBlock(final Clock clock, final TriggerState triggerState) {
+        if (triggerState.getBlockedBy() != null) {
+            triggerStateStore.save(triggerState.blockedBy(clock, null));
+        }
+    }
+
     private static boolean isDisabledInDefinition(final FlowWithSource flow, final String triggerId) {
         return ListUtils.emptyOnNull(flow.getTriggers()).stream()
             .filter(it -> it.getId().equals(triggerId))
@@ -223,7 +231,7 @@ public class DefaultSchedulableTriggerFetcher implements SchedulableTriggerFetch
      */
     private void recordBlockedByGovernance(final Clock clock, final FlowWithSource flow, final TriggerState triggerState, final FlowBlockedException e) {
         Blocker block = Blocker.from(e);
-        if (block.isSameAs(triggerState.getBlockedBy())) {
+        if (block.equals(triggerState.getBlockedBy())) {
             return;
         }
 
